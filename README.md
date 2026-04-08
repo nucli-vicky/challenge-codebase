@@ -43,7 +43,7 @@ Note that no PET reconstruction experience is needed to participate in the chall
 | Guide | Description |
 |-------|-------------|
 | [Rules](docs/rules.md) | All rules for participating teams including training data policy, and pretraining policy |
-| [PET Background](docs/pet-background.md) | PET physics and attenuation correction — start here if you're new to PET |
+| [Data Background](docs/data-background.md) | Details dat acquisition, preprocessing, and alignment of modalities |
 | [Reconstruction Pipeline](docs/reconstruction.md) | How the pseudo-CT is turned into an AC-PET image; how to run it locally |
 | [Submission Guide](docs/submission-guide.md) | Validation, dry-run, and final submission phases explained |
 | [Docker Packaging](docs/docker-packaging.md) | How to containerize your model, with baseline as a worked example |

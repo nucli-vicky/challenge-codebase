@@ -1,122 +1,45 @@
-[WIP]
+# Data Background
 
-# PET Imaging Background
+Understanding how the input features were acquired — and crucially, *when* — helps you reason about their alignment with the ground-truth CT and each other. All participants are healthy controls. 
 
-This guide is for participants who are familiar with medical imaging (MRI, CT) but have not worked extensively with PET. It covers the concepts you need to understand the challenge task, the data, and the evaluation metrics.
+## Acquisition timeline
 
----
+All data was acquired on two scanners at Rigshospitalet, Copenhagen:
 
-## What is PET?
+- **PET/CT scanner**: Siemens Biograph Vision Quadra (long axial field-of-view)
+- **MRI scanner**: Siemens MAGNETOM Vida 3T (separate room, different scanner)
 
-**Positron Emission Tomography (PET)** is a functional imaging modality. Unlike CT or MRI, which image anatomy, PET images *metabolic activity*: how actively tissues are taking up a radiotracer.
+A typical session ran as follows:
 
-The most common radiotracer is **FDG** (fluorodeoxyglucose), a glucose analogue. Tissues with high metabolic activity (tumors, brain, heart) accumulate more FDG. The radiotracer emits positrons, which annihilate with electrons to produce two 511 keV gamma rays traveling in opposite directions. Coincident detection of these pairs is what forms the signal.
+```
+  t = -2 min   Topogram (2D scout X-ray, ~2 min before CT, duration ~7s)
+  t =  0 min   Low-dose CT acquisition (duration ~7s)
+  t =  2 min   18F-FDG injection
+  t =  2-72 min  Dynamic PET acquisition (70 minutes continuous)
+               └─ NAC-PET and PET reconstructed from t = 50–70 min window
+  (same day)   MRI on a separate scanner (duration ~25s per chunk)
+```
 
-The raw detector data — called a **sinogram** — captures projection counts at different angles and offsets, analogous to a CT sinogram. From this, an image is reconstructed (usually with iterative algorithms like **OSEM**).
+## Feature modalities and alignment
 
----
+The four input modalities span a spectrum from *well-aligned but low-quality* to *high-quality but poorly aligned* relative to the ground-truth CT:
 
-## The Attenuation Problem
+### Topogram (`topogram.nii.gz`)
+A 2D sagittal scout X-ray acquired roughly 2 minutes before the CT. It is the most temporally and spatially aligned feature, but has very limited anatomical detail — it is a single 2D projection with coarse resolution. The topogram and CT share the same bed position and scanner table.
 
-511 keV photons passing through tissue are attenuated (absorbed or scattered). Without correcting for this, tissues deep inside the body appear artificially dim — the reconstructed image would be quantitatively wrong.
+### NAC-PET (`nacpet.nii.gz`)
+The non-attenuation-corrected PET, reconstructed from the **50–70 minute** window of the dynamic scan. This is the same scanner as the CT, so bed positioning is roughly preserved, but ~50 minutes elapsed between the CT and the PET window. Over this time, gross body position is stable, but peripheral structures (arms, fingers, legs) may have shifted a bit. NAC-PET encodes useful soft-tissue contrast and body shape, and has the same matrix and affine as the ground-truth CT. 
 
-**Attenuation correction (AC)** compensates for this by estimating how much signal was lost along each line of response. The correction factor for each line depends on the total attenuation integral through the body along that path.
+### MRI (`mri_chunk_*` / `mri_combined_*`)
+Whole-body DIXON MRI acquired on a **separate scanner** the same day as the PET/CT (for 95/99 participants; 4 were scanned 9–89 days later). The MRI provides excellent soft-tissue contrast and anatomical detail, but it is not inherently aligned to PET/CT space. The DIXON MRI sequence used is designed specifically to capture anatomical informing relevant for attenuation correction. **The whole-body image was acquired in four sequential scans of 25s coressponding to four body chunks**. Prior to each acquisition the participant was asked to take a deep breath and hold still. Since participants were not asked to hold their breath during Topogram, CT or PET acquisition, the lung volume is often larger on the MRI. Participants were placed head first supine with arms down the side in both PET/CT and MRI, but the use of coils, different beds and raisable head rests makes the MRI-to-PET/CT alignment poor. A rigid translation (no rotation) was applied to bring the MRI into approximate PET/CT alignment. Whether to incorporate additional registration as a preprocessing step is left to the participant.
 
-In clinical **PET/CT** scanners, a CT scan acquired immediately before the PET scan provides the attenuation map:
+### Summary
 
-1. Convert CT Hounsfield units → **linear attenuation coefficients at 511 keV** (the μ-map)
-2. Forward-project the μ-map to compute the **Attenuation Correction Factor (ACF)** sinogram
-3. Apply the ACF to the raw PET sinogram before reconstruction
+| Feature | Alignment to CT | Anatomical quality |
+|---|---|---|
+| Topogram | Excellent (same scan, ~2 min prior) | Low (2D projection) |
+| NAC-PET | Good (same scanner, ~50 min later) | Moderate |
+| MRI | Approximate (rigid translation only) | High |
 
-CT is the primary source of radiation dose in a PET/CT exam. Eliminating it by predicting a pseudo-CT from non-ionizing inputs (NAC-PET, MRI) is particularly important for radiation-sensitive populations: children, pregnant patients, and patients requiring frequent follow-up scans.
-
----
-
-## HU → μ Conversion
-
-Hounsfield units (HU) encode X-ray attenuation relative to water (water = 0 HU, air = −1000 HU). The conversion to linear attenuation coefficients at 511 keV follows a **bilinear model** (Carney et al. 2006):
-
-| Tissue | HU range | Formula |
-|--------|----------|---------|
-| Air / soft tissue | HU ≤ 0 | μ = 9.6 × 10⁻⁵ × (HU + 1000) |
-| Bone | HU > 0 | μ = 9.6 × 10⁻⁵ × 1000 + bone_slope × HU |
-
-The bone slope depends on X-ray tube voltage (kVp). This challenge uses 120 kVp (bone_slope = 5.10 × 10⁻⁵ cm⁻¹/HU).
-
-The resulting μ-map has units of cm⁻¹ and is used directly in the reconstruction pipeline.
-
----
-
-## What is a Sinogram?
-
-A sinogram stores the raw measured (or corrected) projection data from the PET detector ring. Each row corresponds to a different angular view; each column to a different radial offset. Together they encode the line-integral of activity along every line of response sampled by the detector.
-
-The challenge dataset provides three sinograms per subject (under `recon/`):
-
-| File | Contents |
-|------|---------|
-| `prompts_rd85.*` | Raw prompt coincidences (signal + background) |
-| `mult_nac_rd85.*` | Multiplicative corrections (normalization, detector efficiency, decay) |
-| `add_nac_rd85.*` | Additive background estimate (scatter + randoms) |
-
-You do **not** need to work with sinograms directly — the reconstruction pipeline (`src/recon/`) handles everything. But understanding that your pseudo-CT affects the ACF, which is applied to these sinograms before reconstruction, explains why CT accuracy matters for PET quality.
-
----
-
-## Standardized Uptake Value (SUV)
-
-Raw PET voxel values are proportional to activity concentration (MBq/mL) but vary with injected dose and patient weight — making cross-patient comparisons difficult. **SUV** normalizes for this:
-
-$$\text{SUV} = \frac{\text{voxel activity concentration [kBq/mL]}}{\text{injected dose [kBq] / body weight [g]}}$$
-
-In this challenge, injected dose metadata is not available. Instead, SUV is estimated using the total PET signal and the body mask volume as a weight proxy — consistent across all comparisons.
-
-A perfect pseudo-CT that introduces no attenuation error would produce the same SUV distribution as the ground-truth CT-AC PET. Errors in the μ-map cause regional SUV biases, which the evaluation metrics quantify.
-
----
-
-## Why MRI + Topogram?
-
-Predicting a CT-quality attenuation map from PET alone is difficult — the NAC-PET has poor tissue contrast and geometric distortion from attenuation effects. MRI and the topogram add complementary anatomical information:
-
-- **DIXON MRI**: A fat/water separation sequence. The in-phase and out-of-phase images allow segmentation of fat vs. soft tissue, which is critical for accurate μ values in adipose-rich regions. Four bed positions (chunks) cover the whole body.
-- **Topogram (scout)**: A 2D projection radiograph (like a low-dose planar X-ray) acquired before the main CT. It shows the patient silhouette and bone structure from one projection angle.
-
-Participants are expected to incorporate all available modalities. The baseline model uses NAC-PET only and serves as a lower bound.
-
----
-
-## The Scanner Setup
-
-Subjects in this challenge were scanned on:
-
-- **Siemens Biograph Vision Quadra** (PET/CT): A long axial field of view (LAFOV) PET scanner with a 106 cm detector ring — it can image the full body in a single bed position but uses multiple bed positions for optimal sensitivity. Ring spacing: 3.29114 mm.
-- **Siemens MAGNETOM Vida** (3T MRI): Standard clinical 3T scanner. The DIXON sequence acquires four echoes per TR, enabling fat/water separation from the phase difference of in-phase and out-of-phase images.
-
-Both scanners produce images in the same physical coordinate frame after registration. All data in the dataset has been resampled to the CT grid for consistency.
-
----
-
-## Summary: What You Are Predicting
-
-Your model receives (per subject):
-
-- `features/nacpet.nii.gz` — NAC-PET volume (low tissue contrast, correlated with uptake)
-- `features/mri_chunk_*_*.nii.gz` — DIXON MRI bed positions (good soft tissue contrast)
-- `features/mri_combined_*.nii.gz` — Stitched whole-body DIXON
-- `features/topogram.nii.gz` — 2D scout image
-- `features/metadata.json` — sex, age, height, weight
-
-And must output:
-
-- `ct.nii.gz` — pseudo-CT in Hounsfield units, same shape and affine as the input NAC-PET
-
-This pseudo-CT is then fed into the reconstruction pipeline, which produces an AC-corrected PET image. Both the CT and PET outputs are evaluated against ground truth.
-
----
-
-## Further Reading
-
-- Carney et al. (2006) — *"Method for Transforming CT Images for Attenuation Correction in PET/CT Scanners"*, Medical Physics. The bilinear HU→μ model used in this challenge.
-- Townsend (2008) — *"Multimodality Imaging of Structure and Function"*, Physics in Medicine and Biology. Good clinical PET/CT overview.
-- Thielemans et al. (2012) — *"STIR: Software for Tomographic Image Reconstruction Release 2"*, Physics in Medicine and Biology. The reconstruction library used in this challenge.
+> [!NOTE]
+> All features under `features/` have been resampled to the CT grid (512×512×531). The topogram is 2D and stored as (512×1×531). Despite sharing the same matrix, this does not mean they are perfectly registered — resampling preserves the grid, not the alignment.
