@@ -10,7 +10,7 @@ This guide explains how to submit predictions at each phase of the BIC-MAC Chall
 |-------|--------|----------------|----------------|
 | **Validation** | May 15 – Aug 15 | Zip of NIfTI predictions uploaded to Codabench | All metrics on the 4 validation subjects |
 | **Dry Run** | May 15 – Aug 15 | Docker container via email | CT metrics on the 4 validation subjects (or error logs if the container failed) |
-| **Final Test** | Aug 15 | Docker container via email | Full evaluation on the unseen test set |
+| **Final Test** | June 15 - Aug 15 | Docker container via email | Full evaluation on the unseen test set (September 1) |
 
 Validation and Dry Run run **concurrently** throughout the challenge. Use them to iterate on your model before the final deadline. There is no limit on submissions during either phase.
 
@@ -72,7 +72,6 @@ See [docker-packaging.md](docker-packaging.md) for how to build and test your co
 
 Email **bic-mac-challenge@github.io** with subject line `[DRY-RUN] <TeamName>` and include:
 - Team name, Docker image name and tag
-- A short description of your approach
 - A link to your image using **one** of the options below
 
 **Option A — Docker Hub (preferred):**
@@ -98,15 +97,14 @@ Submit your Docker container by **August 15, 2026**. The container does not need
 
 We will:
 1. Run your container on each unseen test subject
-2. Validate the output `ct.nii.gz` (shape, affine, HU range)
-3. Run the full reconstruction pipeline on each pseudo-CT
-4. Evaluate all metrics against ground-truth CT and PET
+2. Run the full reconstruction pipeline on each pseudo-CT
+3. Evaluate all metrics against ground-truth CT and PET
 
 Results and winner announcements: **September 1, 2026**.
 
 ### How to submit
 
-Same as the dry run — email your container to **bic-mac-challenge@github.io** with subject `[FINAL] <TeamName>`, using Docker Hub or a compressed archive with a file sharing link.
+Same as the dry run — email your container to **bic-mac-challenge@github.io** with subject `[FINAL] <TeamName>`, using Docker Hub or a compressed archive with a file sharing link. Make sure to also include a link to a short methedology paper describing your approach. This methedology paper must be uploaded to a public repository and it is a requirement to be considered eligeble for prizes. 
 
 ---
 
