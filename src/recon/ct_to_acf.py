@@ -100,16 +100,27 @@ def swap_face_from_gt(pred_ct_path, ct_face_and_bed_path, face_mask_path, output
 
     return result_img
 
-def hu_to_mu(ct_path, kvp=120):
-    """Carney et al. 2006 (Med Phys 33:976-983) bilinear HU to mu at 511 keV."""
-    bone_slope = {80: 3.84e-5, 100: 4.56e-5, 120: 5.10e-5, 140: 5.64e-5}
-
+def hu_to_mu(ct_path):
+    """
+    Carney et al. 2006 (Med Phys 33:976-983) 
+    bilinear HU to mu at 511 keV for 120 kVp.
+    """
+    # Carney parameters for KVP 120: (slope 'a', intercept 'b', breakpoint 'bp' in HU+1000)
+    a, b, bp = (5.10e-5, 4.71e-2, 1047) # 1047 corresponds to 47 HU
+    
+    # Load NIfTI CT image
     ct = nib.load(ct_path)
     hu = ct.get_fdata(dtype=np.float32)
 
-    mu = np.where(hu <= 0,
-                  9.6e-5 * (hu + 1000),
-                  9.6e-5 * 1000 + bone_slope[kvp] * hu)
+    # Pre-calculate (HU + 1000) to optimize the np.where evaluations
+    hu1000 = hu + 1000
+
+    # Apply the Carney bilinear scaling
+    mu = np.where(hu1000 < bp,
+                  9.6e-5 * hu1000,
+                  a * hu1000 + b)
+
+    # Ensure no negative attenuation values from extreme CT noise
     mu = np.clip(mu, 0, None)
 
     return nib.Nifti1Image(mu, ct.affine, ct.header)

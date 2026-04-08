@@ -79,7 +79,7 @@ def reconstruction_pipeline(
     if not os.path.exists(mumap_nifti_path) or overwrite:
         t = time.perf_counter()
         log.info("[3/10] Converting CT to mu-map...")
-        mu = hu_to_mu(ct_path, kvp=120)
+        mu = hu_to_mu(ct_path)
         mu.to_filename(mumap_nifti_path)
         log.info(f"      done ({time.perf_counter()-t:.1f}s)")
     else:

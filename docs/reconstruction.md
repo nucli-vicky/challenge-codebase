@@ -1,25 +1,40 @@
-# PET Reconstruction Pipeline
+# PET Reconstruction
 
-The reconstruction pipeline (`src/recon/`) converts a pseudo-CT into an attenuation-corrected PET image using [STIR](http://stir.sourceforge.net/) (Software for Tomographic Image Reconstruction). You do **not** need to understand or modify the pipeline to participate — it is run by the challenge organisers on your submissions. This guide is for participants who want to run it locally for closed-loop training or debugging.
+You do **not** need to understand reconstruction or attenuation correction to participate, however, having an intuition of the first reconstruction steps can be a **significant advantage** when designing your pseudo-CT algorithm and loss function. 
+
+## Introduction
+In PET, the radioactive tracer (FDG, a glucose analogue) emits positrons that immediately annihilate with nearby electrons, releasing two 511 keV photons traveling in exactly opposite directions. The detector rings record both photons simultaneously — a *coincidence event* — telling us which straight line through the patient the emission occurred on, but not where along that line<sup>1</sup>. Tallying all such lines produces a **sinogram**, the raw projection data from which the activity image is reconstructed. However, some photons are absorbed (attenuated) by tissue before reaching the detectors — an effect that is more pronounced for deep structures and dense bone. **Attenuation correction** compensates for this, and it is what your pseudo-CT enables.
+
+The PET reconstruction algorithm is titled Ordinary Poisson Ordered Subsets Expectation Maximization (OP-OSEM). OP-OSEM is simply a maximum likelihood expectation maximization algorithm where the observed data (the sinograms) are partioned and processed in chunks (subsets) to  dramatically accelerate the reconstruction speed. The reconstruction for BIC-MAC performs OP-OPSEM for `5 subsets x 4 iterations = 20 subiterations`. Three sinograms are used in OP-OSEM of which the last two must be attenuation corrected: `prompts_rd85[.s/.hs]`, `add_nac_rd85[.s/.hs]`, and `mult_nac_rd85[.s/.hs]` <sup>2</sup> 
+
+The reconstruction pipeline for BIC-MAC (`src/recon/`) uses [STIR](http://stir.sourceforge.net/) (Software for Tomographic Image Reconstruction) to perform reconstruction. (see [Further Reading](#further-reading) for a primer)
+
+> <sup>1</sup> A simplification. Modern scanners like the Siemens Quadra used for BIC-MAC can detect the tiny time of flight (TOF) difference between the arriving photons and infer their origin (roughly) on the LOR. Consequently, TOF-enabled sinograms have an extra dimension.
+> 
+> <sup>2</sup> RD85 means maximum ring difference of 85 and defines how oblique the LORs are allowed to be. The Siemens Quadra allows up to RD322, but RD85 was chosen to reduce the sinogram size.
 
 ---
 
-## Pipeline Steps
+## BIC-MAC reconstruction steps
+Given a CT (ground-truth or pseudo-CT) and the subject's sinogram data (`recon/`), the the reconstruction pipeline exectutes the following steps to arrive at a reconstructed attenuation-corrected PET NIfTI image:
 
-Given a CT (ground-truth or pseudo-CT) and the subject's sinogram data (`recon/`), the pipeline produces a reconstructed PET NIfTI:
+1. **Superimpose bed pixelated face** - The pseudo-CT face is replaced by a pre-saved pixelated face. Likewise, everything outside a ~1cm rim (pillows, bed, hair, air) is replaced by the ground truth image (see `ct_face_and_bed.nii.gz` and `face_and_bed_mask.nii.gz`). Consequently, the pseudo-CT algorithm will not benefit from trying to predict these areas. The `prediction_mask.nii.gz` under `ct-label` is the *inverse* mask of `face_and_bed_mask.nii.gz` and may be used to restrict training to the relevant body region. You can inspect the face-swapped intermediate file (`intermediates/ct_face_swapped.nii.gz`)
 
-1. **Validate CT** — checks shape, affine, and HU range against the ground-truth CT
-2. **Swap face and bed** — replaces the face and scanner bed region with ground-truth CT values (so face/bed prediction is not penalised)
-3. **HU → μ-map** — converts Hounsfield units to linear attenuation coefficients at 511 keV using the Carney et al. (2006) bilinear model at 120 kVp
-4. **Smooth μ-map** — applies a 4 mm FWHM Gaussian to match scanner resolution
-5. **Resample to STIR** — resamples the μ-map onto the STIR z-axis grid (ring spacing 3.29114 mm)
-6. **Compute ACF sinogram** — forward-projects the μ-map to produce the attenuation correction factor (ACF) sinogram
-7. **Apply ACF to additive sinogram** — multiplies ACF into the scatter+randoms estimate
-8. **Apply ACF to multiplicative sinogram** — multiplies ACF into the detector normalisation sinogram
-9. **OSEM reconstruction** — reconstructs PET via ordered-subsets expectation maximisation with a 4 mm post-filter
-10. **Convert to NIfTI** — writes the reconstructed PET with the correct bed/gantry offset origin
+2. **HU → μ-map** — The pseudo-CT is a volume of Hounsfield units (HU), a relative X-ray density scale where air = −1000 and water = 0. PET reconstruction needs instead the linear attenuation coefficient μ (cm⁻¹) at the 511 keV photon energy of PET annihilation events. The conversion uses a bilinear model (Carney et al. 2006): a steep linear segment maps soft tissue (HU ≤ 47, dominated by water) and a flatter segment maps dense materials like bone (HU > 47). This means that errors in HU are not equally costly in soft tissue and in bone when converting to a mumap. You can inspect the mu_map intermediate file (`intermediates/mu_map.nii.gz`).
 
-Intermediate outputs (μ-map, ACF sinogram, STIR-format files) are written to `output_dir/intermediates/`. The pipeline skips steps whose outputs already exist, so it resumes automatically from a partial run.
+3. **Smooth μ-map** — A 4 mm FWHM Gaussian blur is applied to the μ-map before any sinogram operations. This is standard clinical practice to reduce the effect of CT noise and slight patient movement. Consequently, very fine structural detail in your pseudo-CT may be blurred away before it ever influences the PET sinogram, and by extension, the PET-based metrics. You can inspect the smoothed mu_map intermediate file (`intermediates/mumap_smoothed.nii.gz`)
+
+4. **Resample to STIR** — Resamples the μ-map onto STIR's z-axis grid (ring spacing 3.29 mm), snapping the origin to the STIR coordinate system. A technical prerequisite for STIR's forward projection. The intermediate files are (`intermediates/mumap_stir[.hv/.ahv/.v]`)
+
+5. **Compute ACF sinogram** — The μ-map is *forward projected* along every line of response (LOR) in the PET scanner geometry, computing the total integrated attenuation each annihilation photon pair experiences along that path. The result is the **attenuation correction factor (ACF)** sinogram, which has the same shape as the other PET sinograms, except from the fact that it lacks a TOF-dimension. The intermediate files are(`intermediates/acf[.hs/.v]`)
+
+6.–7. **Apply ACF to sinograms** — The ACF sinogram is multiplied into both the *multiplicative* sinogram and the *additive* sinogram. This encodes the predicted attenuation into the reconstruction inputs. The intermediate files are (`intermediates/add[.hs/.s]` and `intermediates/mult[.hs/.s]`)
+
+8. **OSEM reconstruction** — OP-OSEM is run for 20 subiterations (5 subsets, 4 iterations). The result is smoothed by a 4 mm FWHM Gaussian post-filter to reduce noise. The intermediate files are (`intermediates/pet_20[.ahv/.hv/.v]`).
+
+9. **Convert to NIfTI** — Writes the reconstructed PET volume as a NIfTI file with the correct origin, accounting for the scanner bed position and gantry offset stored in `recon/offset.json`. The final output is `pet.nii.gz`
+
+Intermediate outputs are written to `output_dir/intermediates/`. The pipeline skips steps whose outputs already exist, so it resumes automatically from a partial run.
 
 ---
 
