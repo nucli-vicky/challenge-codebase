@@ -115,4 +115,5 @@ Only subjects in the full `train/` split and the `val/` split include `recon/` d
 ## Further Reading
 
 - Carney et al. (2006) — *"Method for Transforming CT Images for Attenuation Correction in PET/CT Scanners"*, Medical Physics. The bilinear HU→μ model used in this pipeline.
-- Thielemans et al. (2012) — *"STIR: Software for Tomographic Image Reconstruction Release 2"*, Physics in Medicine and Biology. The reconstruction library used here.
+- Cherry, Sorenson & Phelps — *Physics in Nuclear Medicine* (4th ed., 2012)
+

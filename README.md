@@ -8,7 +8,7 @@
 
 ---
 ## Updates
-
+- April 8, 2026 (13:00 GMT+2): [BUG FIX] A bug in the Carney HU-to-MU conversion formula has been fixed. Please make sure to run `docker pull ghcr.io/bic-mac-challenge/recon:latest` and `git pull` for updated recon and evaluation logic. The 8 ground truth PET train images have been updated on huggingface. 
 - April 7, 2026: [NEW DATA POLICY] The use of public datasets for pretraining and other use-cases is now allowed under certain conditions. Please see [docs/rules.md](docs/rules.md) for details. 
 ## Table of Contents
 
@@ -188,7 +188,7 @@ Five metrics compare predicted PET and CT outputs against the ground truth:
 | Metric | Modality | Description | Region |
 |--------|------|-------------|--------|
 | Whole-body SUV MAE | `PET` | Mean absolute error in standardised uptake value (SUV = activity × weight / total dose) | Body mask, excluding ±4 cm around liver |
-| Brain Outlier Score | `PET` | AUC of fraction of brain voxels within relative error thresholds (5%, 10%, 15%) | Brain |
+| Brain Outlier Score | `PET` | AUC of fraction of brain voxels within relative error thresholds (5%, 10%, 15%) [Ladefoged 2017 (fig. 8)](https://www.sciencedirect.com/science/article/pii/S1053811916307170)| Brain |
 | Organ Bias | `PET` | Mean absolute relative error of mean SUV in 8 organs: brain, liver, spleen, heart, pancreas, muscle, adipose, extremities | TotalSegmentator organ labels |
 | CT MU MAE | `CT` | Mean absolute error of attenuation coefficients (μ at 511 keV) between predicted and ground-truth CT after HU→μ conversion | Body mask, excluding ±4 cm axial slices at top of liver|
 | TAC Bias | `Dynamic PET` | Absolute relative error of the integral of time-activity-curves (TACs) for the aorta and selected brain regions. NOTE: Metric is computed only for the final test set due to the size of the dynamic sinograms. | Brain regions and aorta|
