@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 # Copy code
 # -----------------------------
 
-COPY outputs .
+COPY outputs ./outputs
 COPY predict.py . 
 COPY unet.py .
 COPY dataset.py .
